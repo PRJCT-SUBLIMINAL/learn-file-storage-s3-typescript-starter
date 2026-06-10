@@ -4,6 +4,9 @@ import { getVideo, updateVideo } from "../db/videos";
 import type { ApiConfig } from "../config";
 import type { BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
+import {mediaTypeToExt} from "./assets.js";
+import path from "node:path";
+import crypto from "crypto";
 
 export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
   const { videoId } = req.params as { videoId?: string };
@@ -12,12 +15,14 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
   }
 
   const token = getBearerToken(req.headers);
+
   const userID = validateJWT(token, cfg.jwtSecret);
 
   console.log("uploading thumbnail for video", videoId, "by user", userID);
 
   // TODO: implement the upload here
   const parsedFormData = await req.formData();
+
   const imageData = parsedFormData.get("thumbnail");
 
   if (!imageData) throw new BadRequestError("Could not find image.");
@@ -28,21 +33,31 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 
   if (imageData.size > MAX_UPLOAD_SIZE) throw new BadRequestError("Image exceeds max upload size.");
 
-  const mediaType = imageData.type
+  const mediaType = imageData.type;
+
   if (mediaType === "") throw new BadRequestError("Can't find media type");
+
+  if (mediaType !== "image/jpeg" && mediaType !== "image/png") throw new BadRequestError("Wrong media type. Must be jpeg or png.");
 
   const imageArrayBuffer = await imageData.arrayBuffer();
   const imageBuffer = Buffer.from(imageArrayBuffer);
-  const base64string = imageBuffer.toString("base64");
+
+  const randomBytes = crypto.randomBytes(32);
+  const base64string = randomBytes.toString("base64url");
 
   const video = getVideo(cfg.db, videoId);
+
   if (!video) throw new NotFoundError("Could not find video.");
 
   if (video.userID !== userID) throw new UserForbiddenError("User not authorized.");
 
-  const dataURL = `data:${mediaType};base64,${base64string}`
+  const fileExtension = mediaTypeToExt(mediaType);
 
-  video.thumbnailURL = dataURL;
+  const thumbnailPath = path.join(cfg.assetsRoot, `${base64string}.${fileExtension}`);
+
+  Bun.write(thumbnailPath, imageBuffer);
+
+  video.thumbnailURL = `http://localhost:${cfg.port}/assets/${base64string}.${fileExtension}`;
 
   updateVideo(cfg.db, video);
 
