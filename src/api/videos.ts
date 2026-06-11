@@ -1,10 +1,10 @@
 import { respondWithJSON } from "./json";
 
 import { type ApiConfig, cfg } from "../config";
-import { stderr, type BunRequest } from "bun";
+import { type BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from "./errors";
 import { getBearerToken, validateJWT } from "../auth";
-import { getVideo, updateVideo } from "../db/videos";
+import { getVideo, updateVideo, type Video } from "../db/videos";
 import { mediaTypeToExt } from "./assets";
 
 const MAX_UPLOAD_SIZE = 1 << 30;
@@ -51,24 +51,23 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
   const newFilePath = await processVideoForFastStart(tempPath);
   const newFile = Bun.file(newFilePath);
 
-  try {
-    const aspectRatio = await getVideoAspectRatio(tempPath);
+  const aspectRatio = await getVideoAspectRatio(tempPath);
 
-    const key = `${aspectRatio}/${videoId}.${fileExtension}`;
+  const key = `${aspectRatio}/${videoId}.${fileExtension}`;
 
-    const remoteFile = cfg.s3Client.file(key);
-    await remoteFile.write(newFile, {type: mediaType});
+  const remoteFile = cfg.s3Client.file(key);
+  await remoteFile.write(newFile, {type: mediaType});
 
-    const videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${key}`;
+  const videoURL = `https://${cfg.s3CfDistribution}/${key}`;
 
-    updateVideo(cfg.db, {...videoMetadata, videoURL});
-  } finally {
-    await file.delete();
-    await newFile.delete();
-  }
-  
+  const updatedVideo = {...videoMetadata, videoURL}
+  updateVideo(cfg.db, updatedVideo);
 
-  return respondWithJSON(200, null);
+  await file.delete();
+  await newFile.delete();
+
+  // const signedVideo = dbVideoToSignedVideo(cfg, updatedVideo);
+  return respondWithJSON(200, updatedVideo);
 }
 
 export async function getVideoAspectRatio(filePath: string): Promise<string> {
@@ -99,3 +98,15 @@ export async function processVideoForFastStart(inputFilePath: string): Promise<s
 
   return outputFilePath;
 }
+
+// export function generatePresignedURL(cfg: ApiConfig, key: string, expireTime: number) {
+//   const presignedKey = cfg.s3Client.presign(key, {expiresIn: expireTime});
+//   return presignedKey;
+// }
+
+// export function dbVideoToSignedVideo(cfg: ApiConfig, video: Video) {
+//   const videoURL = video.videoURL;
+//   if (!videoURL) throw new Error("Video has no URL");
+//   const presignedKey = generatePresignedURL(cfg, videoURL, 3600)
+//   return { ...video, videoURL: presignedKey };
+// }
