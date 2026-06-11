@@ -31,7 +31,7 @@ export async function handlerUploadThumbnail(cfg: ApiConfig, req: BunRequest) {
 
   const MAX_UPLOAD_SIZE = 10 << 20;
 
-  if (imageData.size > MAX_UPLOAD_SIZE) throw new BadRequestError("Image exceeds max upload size.");
+  if (imageData.size > MAX_UPLOAD_SIZE) throw new BadRequestError("File size limit exceeded.");
 
   const mediaType = imageData.type;
 
